@@ -1,0 +1,13 @@
+[package]
+name = "creating_a_rest_web_service"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+actix-web = "1"
+futures = "0.1"
+rand = "0.6"
+
+[[bin]]
+name = "file_transfer"
+path = "src/file_transfer.rs"
