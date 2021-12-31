@@ -7,7 +7,12 @@ edition = "2021"
 name = "toml"
 path = "src/toml.rs"
 
+[[bin]]
+name = "sqlite"
+path = "src/sqlite.rs"
+
 [dependencies]
+rusqlite = "0.23.0"
 toml = "0.4"
 serde = "1.0"
 serde_derive = "1.0"
