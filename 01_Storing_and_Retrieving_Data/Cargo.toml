@@ -3,9 +3,11 @@ name = "storing_and_retrieving_data"
 version = "0.1.0"
 edition = "2021"
 
-[dependencies]
-toml = "0.4"
-
 [[bin]]
 name = "toml"
 path = "src/toml.rs"
+
+[dependencies]
+toml = "0.4"
+serde = "1.0"
+serde_derive = "1.0"
