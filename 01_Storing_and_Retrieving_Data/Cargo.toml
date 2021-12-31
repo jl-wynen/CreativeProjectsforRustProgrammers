@@ -1,0 +1,11 @@
+[package]
+name = "storing_and_retrieving_data"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+toml = "0.4"
+
+[[bin]]
+name = "toml"
+path = "src/toml.rs"
