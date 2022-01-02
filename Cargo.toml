@@ -2,4 +2,5 @@
 members = [
     "02_Storing_and_Retrieving_Data",
     "03_REST_Web_Service",
+    "04_Full_Server_Side_Web_App",
 ]
