@@ -1,5 +1,5 @@
 [workspace]
 members = [
-    "01_Storing_and_Retrieving_Data",
-    "02_Creating_a_REST_Web_Service",
+    "02_Storing_and_Retrieving_Data",
+    "03_REST_Web_Service",
 ]
