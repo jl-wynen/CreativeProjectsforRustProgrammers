@@ -1,4 +1,10 @@
 <h1>Persons</h1>
+<div>
+    <span>Current user: </span>
+    <span id="current_user" class="current-user"></span>
+    <button onclick="getPage('/page/login')">Change User</button>
+</div>
+<hr/>
 <label class="error">{{id_error}}</label>
 <div>
     <label>Id:</label>
@@ -16,8 +22,16 @@
     </button>
 </div>
 <div>
-    <button onclick="delete_selected_persons()">Delete Selected Persons</button>
-    <button onclick="getPage('/page/new_person')">Add New Person</button>
+    <button
+            {% if not can_write %}disabled{% endif %}
+            onclick="delete_selected_persons()"
+    >Delete Selected Persons
+    </button>
+    <button
+            {% if not can_write %}disabled{% endif %}
+            onclick="getPage('/page/new_person')"
+    >Add New Person
+    </button>
 </div>
 {% if persons %}
 <table>

@@ -3,6 +3,10 @@ The client can send two possible kinds of messages:
 - sendCommand: sends a specified REST command
 - getPage: requests HTML code that will be assigned to the body
 */
+var username = '';
+
+var password = '';
+
 function sendCommand(method, uri, body, success, failure) {
     var xhttp = new XMLHttpRequest();
     xhttp.onreadystatechange = function () {
@@ -11,6 +15,8 @@ function sendCommand(method, uri, body, success, failure) {
             else failure();
     };
     xhttp.open(method, uri, true);
+    xhttp.setRequestHeader("Authorization",
+        "Basic " + btoa(username + ":" + password));
     xhttp.send(body);
 }
 
@@ -20,9 +26,14 @@ function getPage(uri) {
         if (this.readyState == 4 && this.status == 200) {
             document.getElementById('body')
                 .innerHTML = xhttp.responseText;
+            var cur_user = document.getElementById('current_user');
+            if (cur_user)
+                cur_user.innerHTML = username ? username : '---';
         }
     };
     xhttp.open('GET', uri, true);
+    xhttp.setRequestHeader("Authorization",
+        "Basic " + btoa(username + ":" + password));
     xhttp.send();
 }
 
@@ -60,4 +71,10 @@ function savePerson(method) {
         function () {
             alert('Failed command.');
         });
+}
+
+function login() {
+    username = document.getElementById('username').value;
+    password = document.getElementById('password').value;
+    getPage('/page/persons');
 }

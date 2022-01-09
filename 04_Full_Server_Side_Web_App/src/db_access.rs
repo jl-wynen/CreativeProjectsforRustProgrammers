@@ -6,13 +6,45 @@ pub struct Person {
     pub name: String,
 }
 
+#[derive(Serialize, Clone, Copy, PartialEq, Debug)]
+pub enum DbPrivilege {
+    CanRead,
+    CanWrite,
+}
+
+#[derive(Serialize, Clone, Debug)]
+pub struct User {
+    pub username: String,
+    pub password: String,
+    pub privileges: Vec<DbPrivilege>,
+}
+
 pub struct DbConnection {
     persons: Vec<Person>,
+    users: Vec<User>,
 }
 
 impl DbConnection {
     pub fn new() -> Self {
-        Self { persons: vec![] }
+        Self {
+            persons: vec![],
+            users: vec![
+                User {
+                    username: "joe".to_string(),
+                    password: "xjoe".to_string(),
+                    privileges: vec![DbPrivilege::CanRead],
+                },
+                User {
+                    username: "susan".to_string(),
+                    password: "xsusan".to_string(),
+                    privileges: vec![DbPrivilege::CanRead, DbPrivilege::CanWrite],
+                },
+            ],
+        }
+    }
+
+    pub fn get_user_by_username(&self, username: &str) -> Option<&User> {
+        self.users.iter().find(|u| u.username == username)
     }
 
     pub fn get_person_by_id(&self, id: u32) -> Option<&Person> {

@@ -2,17 +2,43 @@ use std::cmp::min;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use actix_web::{web, App, HttpResponse, HttpServer, Responder};
+use actix_web::{web, App, HttpResponse, HttpServer};
+use actix_web_httpauth::extractors::basic::{BasicAuth, Config};
 use lazy_static::lazy_static;
 use serde_derive::Deserialize;
 use tera::Context;
 
-mod db_access;
-
+use db_access::DbPrivilege;
 use db_access::Person;
+
+mod db_access;
 
 struct AppState {
     db: db_access::DbConnection,
+}
+
+fn check_credentials(
+    auth: BasicAuth,
+    state: &web::Data<Mutex<AppState>>,
+    required_privilege: DbPrivilege,
+) -> Result<Vec<DbPrivilege>, String> {
+    let db_conn = &state.lock().unwrap().db;
+    if let Some(user) = db_conn.get_user_by_username(auth.user_id()) {
+        if auth.password().is_some() && &user.password == auth.password().unwrap() {
+            if user.privileges.contains(&required_privilege) {
+                Ok(user.privileges.clone())
+            } else {
+                Err(format!(
+                    "Insufficient privileges for user \"{}\".",
+                    user.username
+                ))
+            }
+        } else {
+            Err(format!("Invalid password for user \"{}\".", user.username))
+        }
+    } else {
+        Err(format!("User \"{}\" not found.", auth.user_id()))
+    }
 }
 
 fn template_path() -> PathBuf {
@@ -25,13 +51,13 @@ lazy_static! {
     pub static ref TERA: tera::Tera = tera::Tera::new(template_path().to_str().unwrap()).unwrap();
 }
 
-fn respond_html_ok(template_name: &str, context: &Context) -> impl Responder {
+fn respond_html_ok(template_name: &str, context: &Context) -> HttpResponse {
     HttpResponse::Ok()
         .content_type("text/html")
         .body(TERA.render(template_name, &context).unwrap())
 }
 
-fn get_main() -> impl Responder {
+fn get_main() -> HttpResponse {
     let context = tera::Context::new();
     respond_html_ok("main.html", &context)
 }
@@ -43,16 +69,23 @@ pub struct Filter {
 
 fn get_page_persons(
     query: web::Query<Filter>,
+    auth: BasicAuth,
     state: web::Data<Mutex<AppState>>,
-) -> impl Responder {
-    let partial_name = &query.partial_name.clone().unwrap_or_else(|| "".to_string());
-    let db_conn = &state.lock().unwrap().db;
-    let person_list = db_conn.get_persons_by_partial_name(&partial_name);
-    let mut context = tera::Context::new();
-    context.insert("id_error", &"");
-    context.insert("partial_name", &partial_name);
-    context.insert("persons", &person_list.collect::<Vec<_>>());
-    respond_html_ok("persons.html", &context)
+) -> HttpResponse {
+    match check_credentials(auth, &state, DbPrivilege::CanRead) {
+        Ok(privileges) => {
+            let partial_name = &query.partial_name.clone().unwrap_or_else(|| "".to_string());
+            let db_conn = &state.lock().unwrap().db;
+            let person_list = db_conn.get_persons_by_partial_name(&partial_name);
+            let mut context = tera::Context::new();
+            context.insert("can_write", &privileges.contains(&DbPrivilege::CanWrite));
+            context.insert("id_error", &"");
+            context.insert("partial_name", &partial_name);
+            context.insert("persons", &person_list.collect::<Vec<_>>());
+            respond_html_ok("persons.html", &context)
+        }
+        Err(msg) => get_page_login_with_message(&msg),
+    }
 }
 
 #[derive(Deserialize)]
@@ -62,48 +95,70 @@ pub struct ToDelete {
 
 fn delete_persons(
     query: web::Query<ToDelete>,
+    auth: BasicAuth,
     state: web::Data<Mutex<AppState>>,
-) -> impl Responder {
-    let db_conn = &mut state.lock().unwrap().db;
-    query
-        .id_list
-        .clone()
-        .unwrap_or_else(|| "".to_string())
-        .split_terminator(',')
-        .map(|id| db_conn.delete_by_id(id.parse::<u32>().unwrap()) as i32)
-        .sum::<i32>()
-        .to_string()
+) -> HttpResponse {
+    match check_credentials(auth, &state, DbPrivilege::CanWrite) {
+        Ok(_) => {
+            let db_conn = &mut state.lock().unwrap().db;
+            let deleted_count = query
+                .id_list
+                .clone()
+                .unwrap_or_else(|| "".to_string())
+                .split_terminator(',')
+                .map(|id| db_conn.delete_by_id(id.parse::<u32>().unwrap()) as i32)
+                .sum::<i32>()
+                .to_string();
+            HttpResponse::Ok()
+                .content_type("text_plain")
+                .body(deleted_count)
+        }
+        Err(msg) => get_page_login_with_message(&msg),
+    }
 }
 
-fn get_page_new_person() -> impl Responder {
-    let mut context = tera::Context::new();
-    context.insert("person_id", &"");
-    context.insert("person_name", &"");
-    context.insert("inserting", &true);
-    respond_html_ok("one_person.html", &context)
+fn get_page_new_person(auth: BasicAuth, state: web::Data<Mutex<AppState>>) -> HttpResponse {
+    match check_credentials(auth, &state, DbPrivilege::CanWrite) {
+        Ok(privileges) => {
+            let mut context = tera::Context::new();
+            context.insert("can_write", &privileges.contains(&DbPrivilege::CanWrite));
+            context.insert("person_id", &"");
+            context.insert("person_name", &"");
+            context.insert("inserting", &true);
+            respond_html_ok("one_person.html", &context)
+        }
+        Err(msg) => get_page_login_with_message(&msg),
+    }
 }
 
 fn get_page_edit_person(
     state: web::Data<Mutex<AppState>>,
+    auth: BasicAuth,
     path: web::Path<(String,)>,
-) -> impl Responder {
-    let id = &path.0;
-    let db_conn = &state.lock().unwrap().db;
-    let mut context = tera::Context::new();
-    if let Ok(id_n) = id.parse::<u32>() {
-        if let Some(person) = db_conn.get_person_by_id(id_n) {
-            context.insert("person_id", &id);
-            context.insert("person_name", &person.name);
-            context.insert("inserting", &false);
-            return respond_html_ok("one_person.html", &context);
-        }
-    }
+) -> HttpResponse {
+    match check_credentials(auth, &state, DbPrivilege::CanRead) {
+        Ok(privileges) => {
+            let id = &path.0;
+            let db_conn = &state.lock().unwrap().db;
+            let mut context = tera::Context::new();
+            context.insert("can_write", &privileges.contains(&DbPrivilege::CanWrite));
+            if let Ok(id_n) = id.parse::<u32>() {
+                if let Some(person) = db_conn.get_person_by_id(id_n) {
+                    context.insert("person_id", &id);
+                    context.insert("person_name", &person.name);
+                    context.insert("inserting", &false);
+                    return respond_html_ok("one_person.html", &context);
+                }
+            }
 
-    context.insert("id_error", &"Person id not found");
-    context.insert("partial_name", &"");
-    let person_list = db_conn.get_persons_by_partial_name(&"");
-    context.insert("persons", &person_list.collect::<Vec<_>>());
-    respond_html_ok("persons.html", &context)
+            context.insert("id_error", &"Person id not found");
+            context.insert("partial_name", &"");
+            let person_list = db_conn.get_persons_by_partial_name(&"");
+            context.insert("persons", &person_list.collect::<Vec<_>>());
+            respond_html_ok("persons.html", &context)
+        }
+        Err(msg) => get_page_login_with_message(&msg),
+    }
 }
 
 #[derive(Deserialize)]
@@ -111,19 +166,30 @@ struct ToInsert {
     name: Option<String>,
 }
 
-fn insert_person(state: web::Data<Mutex<AppState>>, query: web::Query<ToInsert>) -> impl Responder {
-    let db_conn = &mut state.lock().unwrap().db;
-    let mut inserted_count = 0;
-    if let Some(name) = &query.name.clone() {
-        inserted_count += min(
-            db_conn.insert_person(Person {
-                id: 0,
-                name: name.clone(),
-            }),
-            1,
-        );
+fn insert_person(
+    state: web::Data<Mutex<AppState>>,
+    query: web::Query<ToInsert>,
+    auth: BasicAuth,
+) -> HttpResponse {
+    match check_credentials(auth, &state, DbPrivilege::CanWrite) {
+        Ok(_) => {
+            let db_conn = &mut state.lock().unwrap().db;
+            let mut inserted_count = 0;
+            if let Some(name) = &query.name.clone() {
+                inserted_count += min(
+                    db_conn.insert_person(Person {
+                        id: 0,
+                        name: name.clone(),
+                    }),
+                    1,
+                );
+            }
+            HttpResponse::Ok()
+                .content_type("text/plain")
+                .body(inserted_count.to_string())
+        }
+        Err(msg) => get_page_login_with_message(&msg),
     }
-    inserted_count.to_string()
 }
 
 #[derive(Deserialize)]
@@ -132,33 +198,55 @@ struct ToUpdate {
     name: Option<String>,
 }
 
-fn update_person(state: web::Data<Mutex<AppState>>, query: web::Query<ToUpdate>) -> impl Responder {
-    let db_conn = &mut state.lock().unwrap().db;
-    let mut updated_count = 0;
-    let id = query.id.unwrap_or(0);
-    let name = query.name.clone().unwrap_or_else(|| "".to_string()).clone();
-    updated_count += if db_conn.update_person(Person { id, name }) {
-        1
-    } else {
-        0
-    };
-    updated_count.to_string()
+fn update_person(
+    auth: BasicAuth,
+    state: web::Data<Mutex<AppState>>,
+    query: web::Query<ToUpdate>,
+) -> HttpResponse {
+    match check_credentials(auth, &state, DbPrivilege::CanWrite) {
+        Ok(_) => {
+            let db_conn = &mut state.lock().unwrap().db;
+            let mut updated_count = 0;
+            let id = query.id.unwrap_or(0);
+            let name = query.name.clone().unwrap_or_else(|| "".to_string()).clone();
+            updated_count += if db_conn.update_person(Person { id, name }) {
+                1
+            } else {
+                0
+            };
+            HttpResponse::Ok()
+                .content_type("text/plain")
+                .body(updated_count.to_string())
+        }
+        Err(msg) => get_page_login_with_message(&msg),
+    }
 }
 
-fn get_favicon() -> impl Responder {
+fn get_favicon() -> HttpResponse {
     HttpResponse::Ok()
         .content_type("image/x-icon")
         .body(include_bytes!("favicon.ico") as &[u8])
 }
 
-fn invalid_resource(state: web::Data<Mutex<AppState>>) -> impl Responder {
+fn invalid_resource(state: web::Data<Mutex<AppState>>) -> HttpResponse {
     let db_conn = &state.lock().unwrap().db;
     let mut context = tera::Context::new();
+    context.insert("can_write", &false);
     context.insert("id_error", &"Invalid request.");
     context.insert("partial_name", &"");
     let person_list = db_conn.get_persons_by_partial_name(&"");
     context.insert("persons", &person_list.collect::<Vec<_>>());
     respond_html_ok("persons.html", &context)
+}
+
+fn get_page_login() -> HttpResponse {
+    get_page_login_with_message("")
+}
+
+fn get_page_login_with_message(error_message: &str) -> HttpResponse {
+    let mut context = tera::Context::new();
+    context.insert("error_message", error_message);
+    respond_html_ok("login.html", &context)
 }
 
 fn main() -> std::io::Result<()> {
@@ -170,11 +258,17 @@ fn main() -> std::io::Result<()> {
     HttpServer::new(move || {
         App::new()
             .register_data(db_conn.clone())
+            .data(Config::default().realm("PersonsApp"))
             .service(
                 web::resource("/")
                     // Get the frame of the page to manage the persons.
                     // Such frame should request its body.
                     .route(web::get().to(get_main)),
+            )
+            .service(
+                web::resource("/page/login")
+                    // Get the page to login into the Web app.
+                    .route(web::get().to(get_page_login)),
             )
             .service(
                 web::resource("/page/persons")

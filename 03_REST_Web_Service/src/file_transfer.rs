@@ -19,7 +19,7 @@ fn flush_stdout() {
     std::io::stdout().flush().unwrap();
 }
 
-fn delete_file(info: Path<(String, )>) -> impl Responder {
+fn delete_file(info: Path<(String,)>) -> impl Responder {
     let filename = &info.0;
     print!("Deleting file \"{}\" ... ", filename);
     flush_stdout();
@@ -43,7 +43,7 @@ fn read_file_contents(filename: &str) -> std::io::Result<String> {
     Ok(contents)
 }
 
-fn download_file(info: Path<(String, )>) -> impl Responder {
+fn download_file(info: Path<(String,)>) -> impl Responder {
     let filename = &info.0;
     print!("Downloading file \"{}\" ... ", filename);
     flush_stdout();
@@ -62,8 +62,8 @@ fn download_file(info: Path<(String, )>) -> impl Responder {
 
 fn upload_specified_file(
     payload: web::Payload,
-    info: Path<(String, )>,
-) -> impl Future<Item=HttpResponse, Error=Error> {
+    info: Path<(String,)>,
+) -> impl Future<Item = HttpResponse, Error = Error> {
     let filename = info.0.clone();
     print!("Uploading file \"{}\" ... ", filename);
     flush_stdout();
@@ -120,8 +120,8 @@ fn create_new_file(filename_prefix: &str) -> Result<(String, File), String> {
 
 fn upload_new_file(
     payload: web::Payload,
-    info: Path<(String, )>,
-) -> impl Future<Item=HttpResponse, Error=Error> {
+    info: Path<(String,)>,
+) -> impl Future<Item = HttpResponse, Error = Error> {
     let filename_prefix = info.0.clone();
     print!("Uploading file \"{}*.txt\" ... ", filename_prefix);
     flush_stdout();
@@ -171,6 +171,6 @@ fn main() -> std::io::Result<()> {
             )
             .default_service(web::route().to(invalid_resource))
     })
-        .bind(server_address)?
-        .run()
+    .bind(server_address)?
+    .run()
 }

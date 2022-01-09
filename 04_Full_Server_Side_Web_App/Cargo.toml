@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 actix-web = "1"
+actix-web-httpauth = "0.3"
 lazy_static = "1.2"
 tera = "1"
 serde = "1"
